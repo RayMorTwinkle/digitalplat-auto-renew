@@ -98,6 +98,50 @@ $env:DIGITALPLAT_API_TOKEN="dp_live_xxx"; $env:DIGITALPLAT_DOMAINS="your.dpdns.o
 python scripts\digitalplat_auto_renew.py --dry-run
 ```
 
+## 故障排查
+
+### 1. 运行几秒就失败：`The job was not started because recent account payments have failed...`
+
+这不是代码问题，是 GitHub 账号层面的 Actions 计费状态。**私有仓库**的 Actions 消耗账号额度，
+一旦账号有未结清账单 / 支付失败 / spending limit 为 0，私有仓库的工作流就会直接被拒绝启动
+（同一账号下的公开仓库不受影响）。
+
+处理方式三选一：
+
+- **修计费**：<https://github.com/settings/billing> 检查付款方式、未支付账单、Spending limit，改完立刻恢复，仓库继续保持 Private。
+- **转公开**：`Settings -> General -> Change visibility -> Public`。公开仓库的 Actions 分钟数免费且不限量，但 `state/domains-state.json` 会变成公开可见（域名与到期日）。
+- **本机兜底**（完全不依赖 GitHub）：
+
+  ```bash
+  mkdir -p "$HOME/Library/Application Support/digitalplat-auto-renew"
+  cat > "$HOME/Library/Application Support/digitalplat-auto-renew/env" <<'ENV'
+  DIGITALPLAT_API_TOKEN=dp_live_xxx
+  DIGITALPLAT_DOMAINS=your.dpdns.org
+  ENV
+  chmod 600 "$HOME/Library/Application Support/digitalplat-auto-renew/env"
+
+  bash scripts/local_run.sh --dry-run   # 先试跑
+  ```
+
+  想每周自动跑，把 `scripts/com.ray.digitalplat-autorenew.plist` 里的
+  `REPLACE_WITH_ABSOLUTE_PATH` 换成仓库绝对路径，然后：
+
+  ```bash
+  cp scripts/com.ray.digitalplat-autorenew.plist ~/Library/LaunchAgents/
+  launchctl load ~/Library/LaunchAgents/com.ray.digitalplat-autorenew.plist
+  ```
+
+  日志在 `/tmp/digitalplat-autorenew.log`。
+
+### 2. `DIGITALPLAT_API_TOKEN 未配置，跳过本次定时检查`
+
+只在 Secret 缺失时出现：`Settings -> Secrets and variables -> Actions -> Secrets` 添加 `DIGITALPLAT_API_TOKEN`。
+
+### 3. 续期返回 `404 registered_domain_not_found`
+
+该域名是 `lifecycle_type=permanent`（永久域名）或未登记在可续期列表里 —— **不需要续期**，
+脚本会记为 `not_applicable` 并正常退出。
+
 ## 文件说明
 
 ```
