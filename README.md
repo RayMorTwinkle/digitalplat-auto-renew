@@ -60,21 +60,23 @@ GitHub Actions 定时器 (cron, 每周一)
 
 ## 部署（本仓库已配置完成）
 
-必需 Secret：
+必需 Secret（`Settings -> Secrets and variables -> Actions -> Secrets`）：
 
 | 名称 | 说明 |
 | --- | --- |
 | `DIGITALPLAT_API_TOKEN` | DigitalPlat API Key，`dp_live_...` 开头。在 <https://dash.domain.digitalplat.org/dashboard/api/keys> 创建 |
+| `DIGITALPLAT_DOMAINS` | 需要续期的域名，换行/逗号/分号/空格分隔均可。**故意放 Secret 而不是 Variable**：Secret 的值会被 GitHub 自动脱敏，日志里显示为 `***`。留空 = 托管账户下全部域名 |
 
 可选 Variables（`Settings -> Secrets and variables -> Actions -> Variables`）：
 
 | 名称 | 默认 | 说明 |
 | --- | --- | --- |
-| `DIGITALPLAT_DOMAINS` | 空（= 账户下全部域名） | 只续期指定域名，换行/逗号/分号分隔均可。也可放在 Secret 里，workflow 两者都读 |
 | `DIGITALPLAT_RENEW_BEFORE_DAYS` | `120` | 提前多少天开始续期 |
 | `DIGITALPLAT_RENEWAL_TYPE` | `free` | 续期类型 |
 | `DIGITALPLAT_RENEWAL_YEARS` | `1` | 每次续几年 |
 | `DIGITALPLAT_API_BASE` | `https://domain-api.digitalplat.org/api/v1` | API 地址，官方换域名时改这里 |
+
+> 兼容性：`DIGITALPLAT_DOMAINS` 放 Variable 也能跑（workflow 里写的是 `${{ vars.DIGITALPLAT_DOMAINS || secrets.DIGITALPLAT_DOMAINS }}`），但那样域名是明文。
 
 ## 本地运行
 
@@ -154,10 +156,10 @@ state/domains-state.json                       每次运行的状态快照（自
 
 ## 安全提示
 
-- API Token 只存在于 GitHub Secret，不会进仓库、不会出现在日志。
-- 域名在 Actions 日志里会被 `::add-mask::` 脱敏。
+- API Token 与域名都只存在于 GitHub Secret，不会进仓库、不会出现在日志（Secret 值由 GitHub 自动脱敏为 `***`，脚本还会对每个域名再 `::add-mask::` 一次）。
+- 会被提交的 `state/domains-state.json` 和 Actions 的 Job Summary 里，域名一律**打码**（`m*******e.dpdns.org` → `m*******e.dpdns.org`），只保留主域名后缀和到期信息。
 - 如果 Token 泄露：立刻到 dashboard 删除该 Key 并重建。
-- 仓库请保持 **Private**：`state/domains-state.json` 会记录你的域名与到期时间。
+- 仓库即使 Public 也不会暴露完整域名与 Token；但仍建议保持 Private 以减少信息面。
 
 ## 致谢 / 许可
 

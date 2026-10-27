@@ -89,6 +89,24 @@ class RunResult:
     renewed: int = 0
 
 
+def redact_domain(domain: str) -> str:
+    """把域名打码成 r*********l.dpdns.org：保留可读性，但不暴露完整名称。
+
+    用于两处会公开可见的地方：GitHub Actions 的 Job Summary 和提交到仓库的
+    状态文件 state/domains-state.json。
+    """
+    text = str(domain).strip().lower()
+    parts = text.split(".")
+    if len(parts) < 2 or not parts[0]:
+        return "***"
+    label = parts[0]
+    if len(label) <= 2:
+        masked = label[:1] + "***"
+    else:
+        masked = label[:1] + "*" * (len(label) - 2) + label[-1]
+    return ".".join([masked] + parts[1:])
+
+
 def actions_mask(value: str) -> None:
     """在 GitHub Actions 中把域名登记为需要脱敏的字符串。"""
     if value and os.getenv("GITHUB_ACTIONS") == "true":
@@ -395,7 +413,8 @@ def update_state_for_record(
     renew_before_days: int,
 ) -> bool:
     domains = state.setdefault("domains", {})
-    item = domains.setdefault(record.name, {})
+    # 状态文件会提交进仓库，因此 key 用打码后的域名，避免公开完整域名。
+    item = domains.setdefault(redact_domain(record.name), {})
     new_item = {
         "expiry_date": record.expiry_date.strftime(DATE_FORMAT),
         "days_remaining": record.days_remaining,
@@ -441,7 +460,7 @@ def write_step_summary(result: RunResult, renew_before_days: int, dry_run: bool)
     ]
     for row in result.rows:
         lines.append(
-            f"| `{row['domain']}` | {row['expiry_date']} | {row['days_remaining']} | "
+            f"| `{redact_domain(row['domain'])}` | {row['expiry_date']} | {row['days_remaining']} | "
             f"{row.get('lifecycle_type') or '-'} | {row['action']} |"
         )
     if result.errors:
@@ -506,7 +525,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     state = load_state(state_path)
-    state_changed = remove_stale_domains(state, set(managed_names))
+    state_changed = remove_stale_domains(state, {redact_domain(name) for name in managed_names})
     result = RunResult()
 
     print(f"UTC now: {datetime.now(timezone.utc).isoformat(timespec='seconds')}")

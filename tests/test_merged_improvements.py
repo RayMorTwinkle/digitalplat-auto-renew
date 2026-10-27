@@ -11,6 +11,8 @@ from scripts.digitalplat_auto_renew import (
     write_step_summary,
     RunResult,
     normalize_domain,
+    redact_domain,
+    update_state_for_record,
 )
 
 
@@ -76,8 +78,34 @@ class TestMergedImprovements(unittest.TestCase):
                 del os.environ["GITHUB_STEP_SUMMARY"]
             content = path.read_text(encoding="utf-8")
             self.assertIn("DigitalPlat 续期检查", content)
-            self.assertIn("a.dpdns.org", content)
+            self.assertIn("a***.dpdns.org", content)
+            self.assertNotIn("| `a.dpdns.org` |", content)
             self.assertIn("本次续期数量：**1**", content)
+
+    def test_redact_domain_hides_full_name(self):
+        self.assertEqual(redact_domain("mydomain.dpdns.org"), "m******n.dpdns.org")
+        self.assertEqual(redact_domain("ab.dpdns.org"), "a***.dpdns.org")
+        self.assertEqual(redact_domain("a.dpdns.org"), "a***.dpdns.org")
+        self.assertEqual(redact_domain(""), "***")
+        self.assertNotIn("mydomain", redact_domain("mydomain.dpdns.org"))
+
+    def test_state_key_is_redacted(self):
+        import json
+        import tempfile
+        from pathlib import Path as P
+
+        from scripts.digitalplat_auto_renew import save_state, load_state
+
+        record = normalize_domain({"domain": "mydomain.dpdns.org", "expires_at": "20271120"})
+        state = {"domains": {}}
+        self.assertTrue(update_state_for_record(state, record, "skipped", 120))
+        self.assertIn("m******n.dpdns.org", state["domains"])
+        self.assertNotIn("mydomain", json.dumps(state))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = P(tmp) / "state.json"
+            save_state(path, state)
+            self.assertNotIn("mydomain", path.read_text(encoding="utf-8"))
+            self.assertIn("m******n.dpdns.org", json.dumps(load_state(path)))
 
     def test_parse_datetime_yyyymmdd_from_dpdns(self):
         self.assertEqual(parse_datetime("20271120").strftime("%Y-%m-%d"), "2027-11-20")
