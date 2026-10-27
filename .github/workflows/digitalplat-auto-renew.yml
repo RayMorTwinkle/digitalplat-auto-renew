@@ -1,0 +1,83 @@
+name: DigitalPlat Auto Renew
+
+# 每周一 04:17 UTC（北京时间 12:17）检查一次，也可在 Actions 页面手动触发。
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# 避免上一次运行还没结束就叠加新的定时任务。
+concurrency:
+  group: digitalplat-auto-renew
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check configuration
+        id: check_env
+        env:
+          DIGITALPLAT_API_TOKEN: ${{ secrets.DIGITALPLAT_API_TOKEN }}
+        run: |
+          if [ -z "$DIGITALPLAT_API_TOKEN" ]; then
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              echo "::warning::DIGITALPLAT_API_TOKEN 未配置，跳过本次定时检查。"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::缺少 DIGITALPLAT_API_TOKEN，请在 Settings -> Secrets and variables -> Actions 中配置。"
+            exit 1
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Run unit tests
+        if: steps.check_env.outputs.skip != 'true'
+        run: python -m unittest discover -s tests -v
+
+      - name: Run renewal check
+        if: steps.check_env.outputs.skip != 'true'
+        env:
+          DIGITALPLAT_API_TOKEN: ${{ secrets.DIGITALPLAT_API_TOKEN }}
+          # 域名既可以放在 Variable，也可以放在 Secret；两端都支持。
+          DIGITALPLAT_DOMAINS: ${{ vars.DIGITALPLAT_DOMAINS || secrets.DIGITALPLAT_DOMAINS }}
+          DIGITALPLAT_API_BASE: ${{ vars.DIGITALPLAT_API_BASE }}
+          DIGITALPLAT_RENEW_BEFORE_DAYS: ${{ vars.DIGITALPLAT_RENEW_BEFORE_DAYS }}
+          DIGITALPLAT_RENEWAL_TYPE: ${{ vars.DIGITALPLAT_RENEWAL_TYPE }}
+          DIGITALPLAT_RENEWAL_YEARS: ${{ vars.DIGITALPLAT_RENEWAL_YEARS }}
+        run: |
+          # 逐个域名登记脱敏，避免明文出现在 Actions 日志里。
+          while IFS= read -r domain; do
+            [ -n "$domain" ] && echo "::add-mask::$domain"
+          done < <(printf '%s\n' "$DIGITALPLAT_DOMAINS" | tr ',; ' '\n')
+          python scripts/digitalplat_auto_renew.py --state state/domains-state.json
+
+      # 即使续期失败也提交心跳，避免仓库 60 天无提交被 GitHub 自动停用定时任务。
+      - name: Commit state and keepalive
+        if: always() && steps.check_env.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .keepalive
+          if [ -z "$(git status --porcelain -- state/ .keepalive)" ]; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git add state/ .keepalive
+          git commit -m "chore: update renewal state and keepalive [$(date -u +%Y-%m-%d)]"
+          git pull --rebase origin main || true
+          git push

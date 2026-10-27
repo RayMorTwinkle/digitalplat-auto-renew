@@ -1,0 +1,14 @@
+{
+  "domains": {
+    "r*********l.dpdns.org": {
+      "expiry_date": "2027-11-20",
+      "days_remaining": 389,
+      "renew_before_days": 120,
+      "lifecycle_type": "permanent",
+      "status": "ok",
+      "last_action": "permanent",
+      "checked_at": "2026-10-27T12:45:49+00:00"
+    }
+  },
+  "last_run_at": "2026-10-27T12:45:49+00:00"
+}
